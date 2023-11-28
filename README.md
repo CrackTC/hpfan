@@ -15,7 +15,7 @@ A simple tool to control the fan speed of HP OMEN 17 (and possibly usable for ot
 # Usage
 
 ```shell
-$ ./hpfan --help
+$ ./hpfan -h
 Usage: ./hpfan [-t temp_file] [-p pwm_file] [-w temp_wall]
 ```
 

@@ -1,4 +1,5 @@
 #include <errno.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -12,7 +13,7 @@ struct argument {
   int temp_wall;
 };
 
-void parse_args(int argc, char *argv[], struct argument *args) {
+static void parse_args(int argc, char *argv[], struct argument *args) {
   for (int i = 1; i < argc; i++) {
     if (argv[i][0] == '-') {
       switch (argv[i][1]) {
@@ -42,19 +43,24 @@ void parse_args(int argc, char *argv[], struct argument *args) {
   }
 }
 
-int get_temp(const char *temp_file) {
-  FILE *temp = fopen(temp_file, "r");
+static FILE *temp;
+static FILE *pwm;
+
+static int get_temp(const char *temp_file) {
+  temp = fopen(temp_file, "r");
   if (temp == NULL) {
     printf("Failed to open %s: %s\n", temp_file, strerror(errno));
     exit(1);
   }
   char buf[10];
   fgets(buf, 10, temp);
+  fclose(temp);
+  temp = NULL;
   return atoi(buf);
 }
 
 void main_loop(const char *temp_file, const char *pwm_file, int temp_wall) {
-  FILE *pwm = fopen(pwm_file, "w");
+  pwm = fopen(pwm_file, "w");
   if (pwm == NULL) {
     printf("Failed to open %s: %s\n", pwm_file, strerror(errno));
     exit(1);
@@ -75,7 +81,23 @@ void main_loop(const char *temp_file, const char *pwm_file, int temp_wall) {
   }
 }
 
+static void int_handler(__attribute__((unused)) int _) {
+  printf("Exiting...\n");
+  if (temp != NULL) {
+    fclose(temp);
+    temp = NULL;
+  }
+  if (pwm != NULL) {
+    fprintf(pwm, "2\n");
+    fflush(pwm);
+    fclose(pwm);
+    pwm = NULL;
+  }
+  exit(0);
+}
+
 int main(int argc, char *argv[]) {
+  signal(SIGINT, int_handler);
   struct argument args = {
       "/sys/class/thermal/thermal_zone1/temp",
       "/sys/devices/platform/hp-wmi/hwmon/hwmon5/pwm1_enable",

@@ -13,6 +13,8 @@ struct argument {
   int temp_wall;
 };
 
+volatile sig_atomic_t stop = 0;
+
 static void parse_args(int argc, char *argv[], struct argument *args) {
   for (int i = 1; i < argc; i++) {
     if (argv[i][0] == '-') {
@@ -43,11 +45,8 @@ static void parse_args(int argc, char *argv[], struct argument *args) {
   }
 }
 
-static FILE *temp;
-static FILE *pwm;
-
 static int get_temp(const char *temp_file) {
-  temp = fopen(temp_file, "r");
+  FILE *temp = fopen(temp_file, "r");
   if (temp == NULL) {
     printf("Failed to open %s: %s\n", temp_file, strerror(errno));
     exit(1);
@@ -55,17 +54,17 @@ static int get_temp(const char *temp_file) {
   char buf[10];
   fgets(buf, 10, temp);
   fclose(temp);
-  temp = NULL;
   return atoi(buf);
 }
 
 void main_loop(const char *temp_file, const char *pwm_file, int temp_wall) {
-  pwm = fopen(pwm_file, "w");
+  FILE *pwm = fopen(pwm_file, "w");
   if (pwm == NULL) {
     printf("Failed to open %s: %s\n", pwm_file, strerror(errno));
     exit(1);
   }
-  while (1) {
+
+  while (!stop) {
     clear();
     int temp = get_temp(temp_file);
     printf("Temperature: %lf\n", temp / 1000.0);
@@ -79,21 +78,13 @@ void main_loop(const char *temp_file, const char *pwm_file, int temp_wall) {
     fflush(pwm);
     sleep(1);
   }
+
+  fclose(pwm);
 }
 
 static void int_handler(__attribute__((unused)) int _) {
-  printf("Exiting...\n");
-  if (temp != NULL) {
-    fclose(temp);
-    temp = NULL;
-  }
-  if (pwm != NULL) {
-    fprintf(pwm, "2\n");
-    fflush(pwm);
-    fclose(pwm);
-    pwm = NULL;
-  }
-  exit(0);
+  write(STDOUT_FILENO, "\nExiting...\n", 12);
+  stop = 1;
 }
 
 int main(int argc, char *argv[]) {

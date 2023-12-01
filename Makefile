@@ -10,5 +10,5 @@ clean:
 build: $(SRC)
 	$(CC) $(CFLAGS) -o $(TARGET) $(SRC)
 
-sign: clean build
+sign: $(TARGET)
 	gpg --detach-sign $(TARGET)

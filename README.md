@@ -1,5 +1,5 @@
 
-# hpfans
+# hpfan
 
 A simple tool to control the fan speed of HP OMEN 17 (and possibly usable for other models).
 

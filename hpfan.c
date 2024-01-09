@@ -79,6 +79,8 @@ void main_loop(const char *temp_file, const char *pwm_file, int temp_wall) {
     sleep(1);
   }
 
+  fprintf(pwm, "2\n");
+  fflush(pwm);
   fclose(pwm);
 }
 

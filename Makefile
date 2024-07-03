@@ -1,5 +1,5 @@
 CC := cc
-CFLAGS := -Wall -Wextra -Werror -std=c99 -O2
+CFLAGS := -Wall -Wextra -Werror -std=gnu99 -O2
 SRC := $(wildcard *.c)
 TARGET := $(SRC:.c=)
 SIGNATURE := $(TARGET).sig

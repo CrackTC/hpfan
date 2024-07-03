@@ -1,102 +1,139 @@
 #include <errno.h>
+#include <glob.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
-#define clear() printf("\033[H\033[J")
-
-struct argument {
-  const char *temp_file;
-  const char *pwm_file;
+typedef struct {
+  char *temp_file;
+  char *pwm_file;
   int temp_wall;
-};
+} args_t;
 
-volatile sig_atomic_t stop = 0;
-
-static void parse_args(int argc, char *argv[], struct argument *args) {
+static void parse_args(int argc, char *argv[], args_t *args) {
   for (int i = 1; i < argc; i++) {
-    if (argv[i][0] == '-') {
-      switch (argv[i][1]) {
-        case 't':
-          args->temp_file = argv[++i];
-          break;
-        case 'p':
-          args->pwm_file = argv[++i];
-          break;
-        case 'w':
-          args->temp_wall = atoi(argv[++i]);
-          if (args->temp_wall < 0) {
-            printf("Invalid temperature: %s\n", argv[i]);
-            exit(1);
-          }
-          break;
-        case 'h':
-          printf("Usage: %s [-t temp_file] [-p pwm_file] [-w temp_wall]\n",
-                 argv[0]);
-          exit(0);
-          break;
-        default:
-          printf("Unknown option: %s\n", argv[i]);
-          break;
+    if (argv[i][0] != '-') {
+      fprintf(stderr, "Invalid argument: %s\n", argv[i]);
+      exit(1);
+    }
+
+    switch (argv[i][1]) {
+    case 't':
+      args->temp_file = argv[++i];
+      break;
+    case 'p':
+      args->pwm_file = argv[++i];
+      break;
+    case 'w':
+      args->temp_wall = atoi(argv[++i]);
+      if (args->temp_wall < 0) {
+        fprintf(stderr, "Invalid temperature: %s\n", argv[i]);
+        exit(1);
       }
+      break;
+    case 'h':
+      fprintf(stderr, "Usage: %s [-t temp_file] [-p pwm_file] [-w temp_wall]\n",
+              argv[0]);
+      exit(0);
+      break;
+    default:
+      fprintf(stderr, "Unknown option: %s\n", argv[i]);
+      break;
     }
   }
 }
 
-static int get_temp(const char *temp_file) {
-  FILE *temp = fopen(temp_file, "r");
-  if (temp == NULL) {
-    printf("Failed to open %s: %s\n", temp_file, strerror(errno));
+static FILE *open_file(const char *fname, const char *mode) {
+  FILE *f = fopen(fname, mode);
+  if (f == NULL) {
+    fprintf(stderr, "Failed to open %s: %s\n", fname, strerror(errno));
     exit(1);
   }
+  return f;
+}
+
+static int get_temp(const char *temp_file) {
+  FILE *temp = open_file(temp_file, "r");
   char buf[10];
   fgets(buf, 10, temp);
   fclose(temp);
   return atoi(buf);
 }
 
-void main_loop(const char *temp_file, const char *pwm_file, int temp_wall) {
-  FILE *pwm = fopen(pwm_file, "w");
-  if (pwm == NULL) {
-    printf("Failed to open %s: %s\n", pwm_file, strerror(errno));
-    exit(1);
-  }
+volatile sig_atomic_t stop = 0;
+
+static inline void pwm_enable(FILE *pwm) {
+  fputs("0\n", pwm);
+  fflush(pwm);
+}
+
+static inline void pwm_disable(FILE *pwm) {
+  fputs("2\n", pwm);
+  fflush(pwm);
+}
+
+void main_loop(args_t *args) {
+  FILE *pwm = open_file(args->pwm_file, "w");
 
   while (!stop) {
-    clear();
-    int temp = get_temp(temp_file);
-    printf("Temperature: %lf\n", temp / 1000.0);
-    if (temp > temp_wall) {
-      printf("Pwm enable: %d\n", 0);
-      fprintf(pwm, "0\n");
+    int temp = get_temp(args->temp_file);
+    if (temp > args->temp_wall) {
+      pwm_enable(pwm);
     } else {
-      printf("Pwm enable: %d\n", 2);
-      fprintf(pwm, "2\n");
+      pwm_disable(pwm);
     }
-    fflush(pwm);
     sleep(1);
   }
 
-  fprintf(pwm, "2\n");
-  fflush(pwm);
+  pwm_disable(pwm);
   fclose(pwm);
 }
 
-static void int_handler(__attribute__((unused)) int _) {
-  write(STDOUT_FILENO, "\nExiting...\n", 12);
-  stop = 1;
+static void int_handler(__attribute__((unused)) int _) { stop = 1; }
+
+char *glob_first(const char *pattern) {
+  char *res = NULL;
+  glob_t globbuf;
+
+  switch (glob(pattern, 0, NULL, &globbuf)) {
+  case 0:
+    res = strdup(globbuf.gl_pathv[0]);
+    fprintf(stderr, "Found: %s\n", res);
+    break;
+  case GLOB_NOMATCH:
+    res = strdup(pattern);
+    break;
+  default:
+    fprintf(stderr, "Failed to glob %s\n", pattern);
+    exit(1);
+  }
+
+  globfree(&globbuf);
+  return res;
+}
+
+void glob_args(args_t *args) {
+  args->temp_file = glob_first(args->temp_file);
+  args->pwm_file = glob_first(args->pwm_file);
+}
+
+void free_args(args_t *args) {
+  free(args->temp_file);
+  free(args->pwm_file);
 }
 
 int main(int argc, char *argv[]) {
   signal(SIGINT, int_handler);
-  struct argument args = {
+  args_t args = {
       "/sys/class/thermal/thermal_zone1/temp",
-      "/sys/devices/platform/hp-wmi/hwmon/hwmon5/pwm1_enable",
-      50000,
+      "/sys/devices/platform/hp-wmi/hwmon/hwmon*/pwm1_enable",
+      70000,
   };
   parse_args(argc, argv, &args);
-  main_loop(args.temp_file, args.pwm_file, args.temp_wall);
+  glob_args(&args);
+  main_loop(&args);
+  free_args(&args);
   return 0;
 }

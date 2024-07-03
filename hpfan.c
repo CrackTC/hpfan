@@ -9,7 +9,8 @@
 typedef struct {
   char *temp_file;
   char *pwm_file;
-  int temp_wall;
+  int wall_lo;
+  int wall_hi;
 } args_t;
 
 static void parse_args(int argc, char *argv[], args_t *args) {
@@ -26,22 +27,37 @@ static void parse_args(int argc, char *argv[], args_t *args) {
     case 'p':
       args->pwm_file = argv[++i];
       break;
-    case 'w':
-      args->temp_wall = atoi(argv[++i]);
-      if (args->temp_wall < 0) {
-        fprintf(stderr, "Invalid temperature: %s\n", argv[i]);
-        exit(1);
-      }
+    case 'H':
+      args->wall_hi = atoi(argv[++i]);
+      break;
+    case 'L':
+      args->wall_lo = atoi(argv[++i]);
       break;
     case 'h':
-      fprintf(stderr, "Usage: %s [-t temp_file] [-p pwm_file] [-w temp_wall]\n",
-              argv[0]);
+      fprintf(
+          stderr,
+          "Usage: %s [-t temp_file] [-p pwm_file] [-L wall_lo] [-H wall_hi]\n",
+          argv[0]);
       exit(0);
       break;
     default:
       fprintf(stderr, "Unknown option: %s\n", argv[i]);
       break;
     }
+  }
+
+  if (args->wall_hi < 0) {
+    fprintf(stderr, "Invalid temperature: %d\n", args->wall_hi);
+    exit(1);
+  }
+  if (args->wall_lo < 0) {
+    fprintf(stderr, "Invalid temperature: %d\n", args->wall_lo);
+    exit(1);
+  }
+  if (args->wall_hi < args->wall_lo) {
+    fprintf(stderr, "Invalid temperature range: %d < %d\n", args->wall_hi,
+            args->wall_lo);
+    exit(1);
   }
 }
 
@@ -79,9 +95,9 @@ void main_loop(args_t *args) {
 
   while (!stop) {
     int temp = get_temp(args->temp_file);
-    if (temp > args->temp_wall) {
+    if (temp > args->wall_hi) {
       pwm_enable(pwm);
-    } else {
+    } else if (temp < args->wall_lo) {
       pwm_disable(pwm);
     }
     sleep(1);
@@ -130,6 +146,7 @@ int main(int argc, char *argv[]) {
       "/sys/class/thermal/thermal_zone1/temp",
       "/sys/devices/platform/hp-wmi/hwmon/hwmon*/pwm1_enable",
       70000,
+      80000,
   };
   parse_args(argc, argv, &args);
   glob_args(&args);
